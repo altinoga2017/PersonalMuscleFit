@@ -100,7 +100,35 @@ $('install').onclick = async () => {
 };
 addEventListener('appinstalled', () => { $('install').hidden = true; });
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
+if ('serviceWorker' in navigator) {
+  const workers = navigator.serviceWorker;
+  const hasController = Boolean(workers.controller);
+  const update = $('update');
+  let reloadOnActivate = false;
+  workers.addEventListener('controllerchange', () => {
+    if (!hasController) return;
+    if (reloadOnActivate) {
+      location.reload();
+      return;
+    }
+    update.hidden = false;
+    update.onclick = () => location.reload();
+  });
+  workers.register('./sw.js').then(registration => {
+    function showUpdate() {
+      if (!workers.controller || !registration.waiting) return;
+      update.hidden = false;
+      update.onclick = () => {
+        reloadOnActivate = true;
+        registration.waiting?.postMessage('activate-update');
+      };
+    }
+    showUpdate();
+    registration.addEventListener('updatefound', () => {
+      registration.installing?.addEventListener('statechange', showUpdate);
+    });
+  }).catch(console.warn);
+}
 
 function contactShadow() {
   const canvas = document.createElement('canvas');
@@ -181,16 +209,17 @@ function createViewer() {
 
     const push = name === 'Push-up';
     const crunch = name === 'Crunch';
-    const floor = push || crunch;
+    const floor = push || crunch || name === 'Leg raise' || name === 'Floor press';
+    const overhead = name === 'Shoulder press';
     const row = name === 'Bent-over row';
     const raise = name === 'Lateral raise';
     const halfVertical = T.MathUtils.degToRad(camera.fov / 2);
     const halfHorizontal = Math.atan(Math.tan(halfVertical) * camera.aspect);
-    const verticalRadius = floor ? .78 : row ? .85 : 1.02;
+    const verticalRadius = floor ? .87 : overhead ? 1.25 : row ? .85 : 1.04;
     const horizontalRadius = floor ? 1.12 : raise ? .89 : .65;
     const distance = Math.max(verticalRadius / Math.sin(halfVertical), horizontalRadius / Math.sin(halfHorizontal));
 
-    controls.target.set(0, floor ? .29 : row ? .76 : .92, push ? .1 : crunch ? -.08 : row ? .12 : 0);
+    controls.target.set(0, floor ? .39 : overhead ? 1.10 : row ? .76 : .94, push ? .1 : crunch ? -.08 : row ? .12 : 0);
     const angle = new T.Vector3(row ? 2.6 : floor ? 2.5 : 1.5, crunch ? 1.6 : floor ? 1.1 : .52, row ? -1.35 : floor ? 1.55 : 2.6);
     camera.position.copy(controls.target).add(angle.setLength(distance));
     controls.update();
@@ -221,7 +250,6 @@ function createViewer() {
       }
     }
     if (!imported) {
-      const push = name === 'Push-up';
       athlete.setExercise(name);
       if (groups) athlete.pose(name, 0);
       $('status').textContent = groups
@@ -229,7 +257,7 @@ function createViewer() {
         : 'This exercise is available for logging. A 3D demo is coming in a later update.';
       athlete.root.visible = Boolean(groups);
       shadow.visible = Boolean(groups);
-      const floor = push || name === 'Crunch';
+      const floor = ['Push-up', 'Crunch', 'Floor press', 'Leg raise'].includes(name);
       shadow.scale.set(floor ? 1.15 : .90, floor ? 1.95 : .72, 1);
       if (groups) frameAthlete();
     }
