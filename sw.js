@@ -10,7 +10,7 @@ const FILES = [
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    await cache.addAll(FILES);
+    await cache.addAll(FILES.map(path => new Request(path, {cache: 'reload'})));
     // Earlier versions cannot request activation from an open app window.
     const keys = await caches.keys();
     if (keys.some(key => ['mf5-v1', 'mf6-v1', 'mf6-v2'].includes(key))) await self.skipWaiting();
