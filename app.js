@@ -172,12 +172,50 @@ function createViewer() {
     $('play').textContent = playing ? 'Pause' : 'Play';
   }
 
+  function frameAthlete() {
+    const width = stage.clientWidth;
+    const height = stage.clientHeight;
+    if (!width || !height) return;
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+
+    const push = name === 'Push-up';
+    const crunch = name === 'Crunch';
+    const floor = push || crunch;
+    const row = name === 'Bent-over row';
+    const raise = name === 'Lateral raise';
+    const halfVertical = T.MathUtils.degToRad(camera.fov / 2);
+    const halfHorizontal = Math.atan(Math.tan(halfVertical) * camera.aspect);
+    const verticalRadius = floor ? .78 : row ? .85 : 1.02;
+    const horizontalRadius = floor ? 1.12 : raise ? .89 : .65;
+    const distance = Math.max(verticalRadius / Math.sin(halfVertical), horizontalRadius / Math.sin(halfHorizontal));
+
+    controls.target.set(0, floor ? .29 : row ? .76 : .92, push ? .1 : crunch ? -.08 : row ? .12 : 0);
+    const angle = new T.Vector3(row ? 2.6 : floor ? 2.5 : 1.5, crunch ? 1.6 : floor ? 1.1 : .52, row ? -1.35 : floor ? 1.55 : 2.6);
+    camera.position.copy(controls.target).add(angle.setLength(distance));
+    controls.update();
+    dirty = true;
+  }
+
+  $('fit').onclick = () => {
+    if (!imported) {
+      frameAthlete();
+    } else {
+      camera.position.set(1.62, 1.53, 2.42);
+      controls.target.set(0, .9, 0);
+      controls.update();
+      dirty = true;
+    }
+  };
+
   function select(next) {
     name = next;
     phase = 0;
     const groups = muscleGroups[name];
     $('legend').hidden = Boolean(imported || !groups);
+    $('stage').hidden = $('viewer-controls').hidden = !imported && !groups;
     if (groups && !imported) {
+      $('secondary-label').hidden = !groups.secondary.length;
       for (const kind of ['primary', 'secondary']) {
         $(kind).textContent = groups[kind].map(id => muscleNames[id]).join(', ');
       }
@@ -185,17 +223,15 @@ function createViewer() {
     if (!imported) {
       const push = name === 'Push-up';
       athlete.setExercise(name);
-      athlete.pose(name, 0);
+      if (groups) athlete.pose(name, 0);
       $('status').textContent = groups
         ? 'Drag to rotate. Pinch or scroll to zoom.'
         : 'This exercise is available for logging. A 3D demo is coming in a later update.';
       athlete.root.visible = Boolean(groups);
       shadow.visible = Boolean(groups);
-      const distance = Math.max(1, 1.05 / camera.aspect);
-      controls.target.set(0, push ? .31 : .88, push ? .09 : 0);
-      camera.position.copy(controls.target).add(new T.Vector3(push ? 2.50 : 1.62, push ? 1.08 : .63, push ? 1.50 : 2.42).multiplyScalar(distance));
-      shadow.scale.set(push ? 1.15 : .90, push ? 1.95 : .72, 1);
-      controls.update();
+      const floor = push || name === 'Crunch';
+      shadow.scale.set(floor ? 1.15 : .90, floor ? 1.95 : .72, 1);
+      if (groups) frameAthlete();
     }
     updatePlayback();
     dirty = true;
@@ -247,6 +283,7 @@ function createViewer() {
       athlete.root.visible = false;
       shadow.visible = false;
       $('legend').hidden = true;
+      $('stage').hidden = $('viewer-controls').hidden = false;
       clips = gltf.animations;
       mixer = new T.AnimationMixer(imported);
       $('clips').replaceChildren(...clips.map((clip, i) => new Option(clip.name || `Clip ${i + 1}`, i)));
@@ -293,9 +330,12 @@ function createViewer() {
   controls.addEventListener('change', () => { dirty = true; });
   new ResizeObserver(() => {
     const {clientWidth: width, clientHeight: height} = stage;
+    if (!width || !height) return;
+    const previousAspect = camera.aspect;
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    if (!imported && Math.abs(previousAspect - camera.aspect) > .01) frameAthlete();
     dirty = true;
   }).observe(stage);
   let visible = true;
