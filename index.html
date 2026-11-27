@@ -21,9 +21,9 @@
     <p id="status" role="status">Loading exercise viewer…</p>
     <div id="legend" hidden>
       <span><i class="primary"></i>Primary <b id="primary"></b></span>
-      <span><i class="secondary"></i>Secondary <b id="secondary"></b></span>
+      <span id="secondary-label"><i class="secondary"></i>Secondary <b id="secondary"></b></span>
     </div>
-    <div class="controls" aria-label="Viewer controls">
+    <div id="viewer-controls" class="controls" aria-label="Viewer controls">
       <button id="play">Pause</button>
       <select id="speed" aria-label="Animation speed">
         <option value="1">1× speed</option>
@@ -35,6 +35,7 @@
       <button id="right" aria-label="Rotate right">→</button>
       <button id="closer" aria-label="Zoom in">+</button>
       <button id="farther" aria-label="Zoom out">−</button>
+      <button id="fit">Reset view</button>
     </div>
     <section aria-label="Current set">
       <div id="stats"></div>

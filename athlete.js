@@ -4,11 +4,14 @@ import {mergeGeometries} from './assets/vendor/utils/BufferGeometryUtils.js';
 export const muscleGroups = {
   'Push-up': {primary: ['chest', 'triceps'], secondary: ['shoulders', 'core']},
   'Biceps curl': {primary: ['biceps'], secondary: ['shoulders']},
+  Crunch: {primary: ['core'], secondary: []},
+  'Lateral raise': {primary: ['shoulders'], secondary: ['traps']},
+  'Bent-over row': {primary: ['back'], secondary: ['traps', 'biceps']},
   'Goblet squat': {primary: ['quads', 'glutes'], secondary: ['hamstrings', 'core', 'calves']},
 };
 export const muscleNames = {
   chest: 'Pectorals', triceps: 'Triceps', shoulders: 'Deltoids', core: 'Abdominals',
-  biceps: 'Biceps', quads: 'Quadriceps', glutes: 'Glutes', hamstrings: 'Hamstrings', calves: 'Calves',
+  back: 'Lats', traps: 'Trapezius', biceps: 'Biceps', quads: 'Quadriceps', glutes: 'Glutes', hamstrings: 'Hamstrings', calves: 'Calves',
 };
 
 const v = (x, y, z) => new T.Vector3(x, y, z);
@@ -101,7 +104,12 @@ export function createAthlete(data) {
     const forward = offset(palmCenter, arm.end).normalize();
     const restFrame = frame(forward, across);
     const wrist = extraBone(arm.end);
-    const fingers = Array.from({length: 5}, (_, j) => extraBone(knuckle(j + 1)));
+    const fingers = Array.from({length: 5}, (_, j) => {
+      const proximal = extraBone(knuckle(j + 1));
+      const distal = extraBone(landmark(prefix + 'finger-' + (j + 1) + '-2'));
+      const axis = offset(distal.start, proximal.start).normalize();
+      return {proximal, distal, axis};
+    });
     return {side, sign: i === 0 ? 1 : -1, arm, wrist, fingers, palmCenter, forward, restFrame, points: []};
   });
 
@@ -123,12 +131,17 @@ export function createAthlete(data) {
     const vertex = digits[i] + 256 * digits[i + 1];
     const hand = hands[points[vertex * 3] > 0 ? 0 : 1];
     if (joints[vertex * 4 + 3] !== hand.wrist.index || weights[vertex * 4 + 3] !== 1) continue;
-    const ranked = hand.fingers.map((bone, j) => ({index: bone.index, weight: digits[i + 2 + j] / 255}))
-      .sort((a, b) => b.weight - a.weight).slice(0, 3);
-    const sum = ranked.reduce((total, entry) => total + entry.weight, 0);
-    const divisor = Math.max(1, sum);
-    joints.set([hand.wrist.index, ...ranked.map(entry => entry.index)], vertex * 4);
-    weights.set([Math.max(0, 1 - sum), ...ranked.map(entry => entry.weight / divisor)], vertex * 4);
+    let digit = 0;
+    for (let j = 1; j < 5; j++) {
+      if (digits[i + 2 + j] > digits[i + 2 + digit]) digit = j;
+    }
+    const {proximal, distal, axis} = hand.fingers[digit];
+    const point = v().fromArray(points, vertex * 3);
+    const bend = T.MathUtils.smoothstep(offset(point, proximal.start).dot(axis), -.009, .014);
+    const tip = T.MathUtils.smoothstep(offset(point, distal.start).dot(axis), -.009, .013);
+    const influence = Math.min(1, digits[i + 2 + digit] / 160) * bend;
+    joints.set([hand.wrist.index, proximal.index, distal.index, 0], vertex * 4);
+    weights.set([1 - influence, influence * (1 - tip), influence * tip, 0], vertex * 4);
   }
 
   const skeleton = new T.Skeleton(skeletonRoot.children);
@@ -199,23 +212,46 @@ export function createAthlete(data) {
       mesh.visible = Boolean(primary || groups?.secondary.includes(region));
       mesh.material.color.setHex(primary ? 0xf04445 : 0xf99536);
     }
-    dumbbells[0].visible = name === 'Biceps curl' || name === 'Goblet squat';
-    dumbbells[1].visible = name === 'Biceps curl';
+    const pair = ['Biceps curl', 'Lateral raise', 'Bent-over row'].includes(name);
+    dumbbells[0].visible = pair || name === 'Goblet squat';
+    dumbbells[1].visible = pair;
   }
 
   function pose(name, time) {
     const rep = (1 - Math.cos(time * Math.PI * 2 / (name === 'Goblet squat' ? 3.8 : 3.1))) / 2;
     const push = name === 'Push-up', squat = name === 'Goblet squat', curl = name === 'Biceps curl';
-    const torso = rotation(X, push ? 1.28 + .24 * rep : squat ? .38 * rep : 0);
+    const crunch = name === 'Crunch', raise = name === 'Lateral raise', row = name === 'Bent-over row';
+    const torsoAngle = push ? 1.28 + .24 * rep : squat ? .38 * rep : row ? .93 : crunch ? -1.49 : 0;
+    const torso = rotation(X, torsoAngle);
     const footRotation = push ? rotation(X, 1.37) : identity;
     const leftFoot = anatomy.footLeft.start;
     const ankleHeight = push ? hands[0].pushAnkle : hands[0].standingAnkle;
     const hipTarget = push
       ? transform(hips, leftFoot, v(leftFoot.x, ankleHeight, -.73), torso)
-      : v(0, hips.y + ankleHeight - leftFoot.y - (squat ? .335 * rep : 0), hips.z - (squat ? .245 * rep : 0));
+      : crunch ? v(0, .145, .04)
+        : v(0, hips.y + ankleHeight - leftFoot.y - (squat ? .335 * rep : row ? .105 : 0),
+          hips.z - (squat ? .245 * rep : row ? .155 : 0));
     const bodyPoint = point => transform(point, hips, hipTarget, torso);
-    for (const name of ['spineLower', 'spineMid', 'spineUpper', 'head']) {
-      move(anatomy[name], bodyPoint(anatomy[name].start), torso);
+    let chestRotation = torso;
+    let chestPoint = bodyPoint;
+    if (crunch) {
+      const lower = anatomy.spineLower;
+      const mid = anatomy.spineMid;
+      const chest = anatomy.spineUpper;
+      const lowerRotation = rotation(X, torsoAngle + .19 * rep);
+      const midRotation = rotation(X, torsoAngle + .38 * rep);
+      chestRotation = rotation(X, torsoAngle + .54 * rep);
+      const midTarget = transform(mid.start, lower.start, hipTarget, lowerRotation);
+      const chestTarget = transform(chest.start, mid.start, midTarget, midRotation);
+      chestPoint = point => transform(point, chest.start, chestTarget, chestRotation);
+      move(lower, hipTarget, lowerRotation);
+      move(mid, midTarget, midRotation);
+    } else {
+      move(anatomy.spineLower, bodyPoint(anatomy.spineLower.start), torso);
+      move(anatomy.spineMid, bodyPoint(anatomy.spineMid.start), torso);
+    }
+    for (const name of ['spineUpper', 'head']) {
+      move(anatomy[name], chestPoint(anatomy[name].start), chestRotation);
     }
 
     const goblet = bodyPoint(v(0, 1.28, .27));
@@ -228,25 +264,38 @@ export function createAthlete(data) {
       const upper = anatomy['upperArm' + side];
       const thigh = anatomy['upperLeg' + side], shin = anatomy['lowerLeg' + side];
       const foot = anatomy['foot' + side];
-      const ankle = v(foot.start.x, ankleHeight, push ? -.73 : foot.start.z);
+      const ankle = v(foot.start.x, ankleHeight, push ? -.73 : crunch ? .55 : foot.start.z);
       const hip = bodyPoint(thigh.start);
       const knee = push ? bodyPoint(shin.start)
-        : jointBetween(hip, ankle, thigh.start.distanceTo(thigh.end), shin.start.distanceTo(shin.end), v(ankle.x + sign * .10, .48, .75));
+        : jointBetween(hip, ankle, thigh.start.distanceTo(thigh.end), shin.start.distanceTo(shin.end), v(ankle.x + sign * .10, crunch ? .8 : .48, crunch ? .21 : .75));
       aim(thigh, hip, knee, torso);
       aim(shin, knee, ankle, torso);
       move(foot, ankle, footRotation);
 
-      const shoulder = bodyPoint(upper.start);
+      const shoulder = chestPoint(upper.start);
       const upperLength = upper.start.distanceTo(upper.end);
       const lowerLength = arm.start.distanceTo(arm.end);
       let elbow, palm, handRotation;
-      if (push || squat) {
+      if (push || squat || crunch) {
         palm = push ? v(sign * .252, hand.palmHeight, .565)
-          : goblet.clone().add(v(sign * .116, .042, -.043));
+          : crunch ? chestPoint(v(sign * .07, 1.30, .18))
+            : goblet.clone().add(v(sign * .116, .042, -.043));
         elbow = jointBetween(shoulder, palm, upperLength, lowerLength,
-          push ? v(sign * .50, .26, .08) : bodyPoint(v(sign * .27, 1.01, .15)));
+          push ? v(sign * .50, .26, .08) : chestPoint(v(sign * .27, 1.01, .15)));
         handRotation = push ? hand.flatHand
+          : crunch ? frame(v(-sign, .25, -.15).applyQuaternion(chestRotation), Z.clone().applyQuaternion(chestRotation))
+            .multiply(hand.restFrame.clone().invert())
           : frame(v(-sign * .78, .33, .53), Z.clone().multiplyScalar(-sign)).multiply(hand.restFrame.clone().invert());
+      } else if (raise || row) {
+        const angle = raise ? .12 + 1.39 * rep : .13 + 1.11 * rep;
+        const upperDirection = raise ? v(sign * Math.sin(angle), -Math.cos(angle), .13)
+          : v(sign * .27, -Math.cos(angle), -Math.sin(angle));
+        const direction = raise ? v(sign * Math.sin(angle), -Math.cos(angle), .29)
+          : v(sign * .055, -1, .22 * rep);
+        elbow = shoulder.clone().addScaledVector(upperDirection.normalize(), upperLength);
+        palm = elbow.clone().addScaledVector(direction.normalize(), lowerLength);
+        // The neutral grip stays aligned across the palm as the arm moves.
+        handRotation = frame(direction, Z).multiply(hand.restFrame.clone().invert());
       } else {
         elbow = shoulder.clone().add(v(sign * .094, -Math.sqrt(upperLength ** 2 - .094 ** 2 - .025 ** 2), -.025));
         const angle = curl ? .19 + 2.16 * rep : .15;
@@ -254,23 +303,32 @@ export function createAthlete(data) {
         palm = elbow.clone().addScaledVector(direction, lowerLength);
         handRotation = frame(direction, X).multiply(hand.restFrame.clone().invert());
       }
-      const upperRotation = aim(upper, shoulder, elbow, torso);
+      const upperRotation = aim(upper, shoulder, elbow, chestRotation);
       const lowerRotation = aim(arm, elbow, palm, push ? upperRotation : handRotation);
-      move(anatomy['clavicle' + side], bodyPoint(anatomy['clavicle' + side].start), torso);
-      move(anatomy['shoulderCap' + side], shoulder, torso.clone().slerp(upperRotation, .55));
+      move(anatomy['clavicle' + side], chestPoint(anatomy['clavicle' + side].start), chestRotation);
+      move(anatomy['shoulderCap' + side], shoulder, chestRotation.clone().slerp(upperRotation, .55));
       move(anatomy['elbow' + side], elbow, upperRotation.clone().slerp(lowerRotation, .60));
       move(anatomy['forearmTwist' + side], elbow, lowerRotation);
       move(wrist, palm, handRotation);
       const handFrame = handRotation.clone().multiply(hand.restFrame);
       const gripAxis = X.clone().applyQuaternion(handFrame);
-      fingers.forEach((finger, j) => {
-        const target = transform(finger.start, wrist.start, palm, handRotation);
-        const angle = curl || squat ? (j === 0 ? -.28 : .85) : 0;
-        move(finger, target, rotation(gripAxis, angle).multiply(handRotation));
+      const pair = curl || raise || row;
+      fingers.forEach(({proximal, distal}, j) => {
+        const target = transform(proximal.start, wrist.start, palm, handRotation);
+        const angle = pair ? (j === 0 ? .40 : 1.25) : squat ? (j === 0 ? -.28 : .85) : 0;
+        const proximalRotation = rotation(gripAxis, angle).multiply(handRotation);
+        if (pair && j === 0) {
+          const palmNormal = Z.clone().applyQuaternion(handFrame);
+          proximalRotation.premultiply(rotation(palmNormal, sign * .62));
+        }
+        const distalTarget = transform(distal.start, proximal.start, target, proximalRotation);
+        const distalRotation = rotation(gripAxis, pair ? (j === 0 ? .25 : 1.07) : 0).multiply(proximalRotation);
+        move(proximal, target, proximalRotation);
+        move(distal, distalTarget, distalRotation);
       });
-      if (curl) {
+      if (pair) {
         dumbbells[i].position.copy(transform(hand.palmCenter, wrist.start, palm, handRotation))
-          .addScaledVector(Z.clone().applyQuaternion(handFrame), .026);
+          .addScaledVector(Z.clone().applyQuaternion(handFrame), .017);
         dumbbells[i].quaternion.setFromUnitVectors(Y, gripAxis);
       }
     });

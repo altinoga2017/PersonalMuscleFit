@@ -1,6 +1,6 @@
 # MuscleFit 6.0
 
-MuscleFit is an installable workout tracker with interactive 3D demos for push-ups, biceps curls and goblet squats. Select an exercise to start its demo. Red marks the primary muscles and orange marks the secondary muscles. Drag or use the arrow buttons to rotate, and pinch, scroll or use the zoom buttons to change the view. If your device requests reduced motion, press Play to start.
+MuscleFit is an installable workout tracker with interactive 3D demos for push-ups, biceps curls, goblet squats, crunches, lateral raises and bent-over rows. Select an exercise to start its demo. Red marks the primary muscles and orange marks the secondary muscles. Drag or use the arrow buttons to rotate, and pinch, scroll or use the zoom buttons to change the view. Select Reset view to bring the whole athlete back into frame. If your device requests reduced motion, press Play to start.
 
 Existing exercises remain available for logging. MuscleFit 6.0 reads and writes the existing browser workout history on the same site and browser profile. You can also import a self-contained GLB and select one of its embedded animation clips.
 

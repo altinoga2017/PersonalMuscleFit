@@ -1,4 +1,4 @@
-const CACHE = 'mf6-v1';
+const CACHE = 'mf6-v2';
 const FILES = [
   './', './index.html', './style.css', './app.js', './athlete.js',
   './manifest.json', './icon192.png', './icon512.png',
