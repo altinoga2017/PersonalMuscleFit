@@ -1,6 +1,6 @@
 # MuscleFit 6.0
 
-MuscleFit is an installable workout tracker with interactive 3D demos for all 11 exercises in the workout catalog. Select an exercise to start its demo. Red marks the primary muscles and orange marks the secondary muscles. Drag or use the arrow buttons to rotate, and pinch, scroll or use the zoom buttons to change the view. Select Reset view to bring the whole athlete back into frame. If your device requests reduced motion, press Play to start.
+MuscleFit is an installable workout tracker with interactive 3D demos for all 14 exercises in the workout catalog. Select an exercise to start its demo. Red marks the primary muscles and orange marks the secondary muscles. Drag or use the arrow buttons to rotate, and pinch, scroll or use the zoom buttons to change the view. Use Camera angle for front, side, back or overhead views. Drag Rep position to pause and inspect a point in the movement. Select Reset view to bring the whole athlete back into frame. If your device requests reduced motion, press Play to start.
 
 Existing exercises remain available for logging. MuscleFit 6.0 reads and writes the existing browser workout history on the same site and browser profile. You can also import a self-contained GLB and select one of its embedded animation clips.
 

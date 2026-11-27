@@ -5,11 +5,11 @@ import {createAthlete, muscleGroups, muscleNames} from './athlete.js';
 const $ = id => document.getElementById(id);
 const library = {
   Chest: [['Push-up', 10, 'Keep your torso straight.'], ['Floor press', 12, 'Keep wrists above elbows.']],
-  Arms: [['Biceps curl', 15, 'Keep elbows stationary.'], ['Hammer curl', 12, 'Keep palms facing inward.']],
+  Arms: [['Biceps curl', 15, 'Keep elbows stationary.'], ['Hammer curl', 12, 'Keep palms facing inward.'], ['Alternating curl', 12, 'Curl one arm at a time and keep your elbows close.']],
   Abs: [['Crunch', 15, 'Lift shoulder blades without pulling the neck.'], ['Leg raise', 10, 'Keep the lower back supported.']],
-  Shoulders: [['Lateral raise', 12, 'Avoid shrugging.'], ['Shoulder press', 12, 'Keep ribs down.']],
+  Shoulders: [['Lateral raise', 12, 'Avoid shrugging.'], ['Shoulder press', 12, 'Keep ribs down.'], ['Front raise', 12, 'Raise both weights forward to shoulder height.']],
   Back: [['Bent-over row', 15, 'Hinge at hips with a neutral spine.']],
-  Legs: [['Goblet squat', 15, 'Keep heels planted.'], ['Calf raise', 20, 'Rise and lower slowly.']],
+  Legs: [['Goblet squat', 15, 'Keep heels planted.'], ['Calf raise', 20, 'Rise and lower slowly.'], ['Glute bridge', 15, 'Press through both feet and lift your hips.']],
 };
 const historyKey = 'mf5';
 let history = [];
@@ -195,6 +195,7 @@ function createViewer() {
   let name, imported, mixer, clips = [], phase = 0, dirty = true, speed = 1, last = null;
   let importRequest = 0;
   function updatePlayback() {
+    $('rep-position').hidden = Boolean(imported || !muscleGroups[name]);
     const available = imported ? clips.length > 0 : Boolean(muscleGroups[name]);
     $('play').disabled = $('speed').disabled = !available;
     $('play').textContent = playing ? 'Pause' : 'Play';
@@ -209,7 +210,7 @@ function createViewer() {
 
     const push = name === 'Push-up';
     const crunch = name === 'Crunch';
-    const floor = push || crunch || name === 'Leg raise' || name === 'Floor press';
+    const floor = push || crunch || name === 'Glute bridge' || name === 'Leg raise' || name === 'Floor press';
     const overhead = name === 'Shoulder press';
     const row = name === 'Bent-over row';
     const raise = name === 'Lateral raise';
@@ -226,6 +227,27 @@ function createViewer() {
     dirty = true;
   }
 
+  const angles = {front: [0, .10, 1], side: [1, .10, 0], back: [0, .10, -1], above: [0, 1, .001]};
+  $('view').onchange = () => {
+    const angle = angles[$('view').value];
+    if (!angle) return;
+    const distance = camera.position.distanceTo(controls.target);
+    controls.autoRotate = false;
+    $('orbit').setAttribute('aria-pressed', false);
+    camera.position.copy(controls.target).add(new T.Vector3(...angle).setLength(distance));
+    controls.update();
+    $('view').value = '';
+    dirty = true;
+  };
+  $('scrub').oninput = () => {
+    if (imported) return;
+    playing = false;
+    phase = Number($('scrub').value) / 100;
+    athlete.pose(name, phase);
+    updatePlayback();
+    dirty = true;
+  };
+
   $('fit').onclick = () => {
     if (!imported) {
       frameAthlete();
@@ -240,6 +262,7 @@ function createViewer() {
   function select(next) {
     name = next;
     phase = 0;
+    $('scrub').value = 0;
     const groups = muscleGroups[name];
     $('legend').hidden = Boolean(imported || !groups);
     $('stage').hidden = $('viewer-controls').hidden = !imported && !groups;
@@ -257,7 +280,7 @@ function createViewer() {
         : 'This exercise is available for logging. A 3D demo is coming in a later update.';
       athlete.root.visible = Boolean(groups);
       shadow.visible = Boolean(groups);
-      const floor = ['Push-up', 'Crunch', 'Floor press', 'Leg raise'].includes(name);
+      const floor = ['Push-up', 'Crunch', 'Floor press', 'Leg raise', 'Glute bridge'].includes(name);
       shadow.scale.set(floor ? 1.15 : .90, floor ? 1.95 : .72, 1);
       if (groups) frameAthlete();
     }
@@ -381,9 +404,13 @@ function createViewer() {
     const delta = last === null ? 0 : Math.min((now - last) / 1000, .05);
     last = now;
     if (playing && !$('play').disabled) {
-      phase += delta * speed;
       if (imported) mixer.update(delta * speed);
-      else athlete.pose(name, phase);
+      else {
+        const period = name === 'Alternating curl' ? 5.6 : name === 'Goblet squat' ? 3.8 : 3.1;
+        phase = (phase + delta * speed / period) % 1;
+        athlete.pose(name, phase);
+        $('scrub').value = Math.round(phase * 100);
+      }
       dirty = true;
     }
     controls.update(delta);
@@ -399,6 +426,7 @@ try {
   viewer = createViewer();
 } catch (error) {
   console.warn('Could not start the 3D viewer', error);
+  $('rep-position').hidden = $('viewer-controls').hidden = true;
   $('status').textContent = 'The 3D viewer could not start. Workout logging is still available.';
   document.querySelectorAll('.controls[aria-label] button, #speed, #model').forEach(control => { control.disabled = true; });
 }

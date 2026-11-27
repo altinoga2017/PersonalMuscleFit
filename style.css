@@ -27,3 +27,6 @@ section, details { background: #202833; border-radius: 12px; padding: 14px; marg
 #rest:empty { display: none; }
 label { display: block; margin-top: 8px; }
 input { max-width: 100%; }
+
+#rep-position { display: flex; gap: .7rem; align-items: center; margin-top: .6rem; }
+#scrub { flex: 1; min-width: 0; accent-color: #d9fa65; }

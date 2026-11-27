@@ -37,7 +37,12 @@
       <button id="closer" aria-label="Zoom in">+</button>
       <button id="farther" aria-label="Zoom out">−</button>
       <button id="fit">Reset view</button>
+      <select id="view" aria-label="Camera angle">
+        <option value="">Camera angle</option><option value="front">Front</option>
+        <option value="side">Side</option><option value="back">Back</option><option value="above">Overhead</option>
+      </select>
     </div>
+    <label id="rep-position">Rep position <input type="range" id="scrub" min="0" max="100" value="0" aria-label="Rep position"></label>
     <section aria-label="Current set">
       <div id="stats"></div>
       <p id="tip"></p>
