@@ -30,3 +30,15 @@ input { max-width: 100%; }
 
 #rep-position { display: flex; gap: .7rem; align-items: center; margin-top: .6rem; }
 #scrub { flex: 1; min-width: 0; accent-color: #d9fa65; }
+
+#exercises, #pose-pair { display: grid; gap: 8px; margin: 12px 0; }
+#exercises { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+#exercises button, #pose-pair button { overflow: hidden; padding: 0 0 6px; }
+#exercises button { text-align: left; text-indent: 7px; font-weight: 650; font-size: .88rem; }
+#exercises img, #pose-pair img { width: 100%; display: block; object-fit: contain; background: #e6e8e4; margin-bottom: 6px; }
+#exercises img { height: clamp(76px, 15vw, 110px); }
+#exercises small { display: block; font-weight: normal; }
+.view-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 10px 0; }
+.view-heading h2 { margin: 0; }
+#pose-pair { grid-template-columns: 1fr 1fr; }
+#pose-pair img { height: clamp(94px, 23vw, 145px); }

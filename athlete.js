@@ -338,16 +338,18 @@ export function createAthlete(data) {
     return q;
   }
 
-  function setExercise(name) {
+  function setExercise(name, anatomyView = false) {
     const groups = muscleGroups[name];
     const primary = (groups?.primary || []).map(id => masks[id]);
     const secondary = (groups?.secondary || []).map(id => masks[id]);
     const red = new T.Color(0xc63834), amber = new T.Color(0xe18b39);
+    const stone = new T.Color(0xaeb3b1);
     const fabric = new T.Color(0x1f3039), panel = new T.Color(0x4e666b);
     for (const mesh of [body, shorts]) {
       const colors = mesh.geometry.attributes.color;
       for (let i = 0; i < count; i++) {
-        if (mesh === body) tone.fromArray(neutral, i * 3);
+        if (mesh === body && anatomyView) tone.copy(stone).multiplyScalar(shade[i]);
+        else if (mesh === body) tone.fromArray(neutral, i * 3);
         else {
           const sidePanel = T.MathUtils.smoothstep(Math.abs(points[i * 3]), .154, .185);
           const waistband = T.MathUtils.smoothstep(points[i * 3 + 1], 1.027, 1.036);

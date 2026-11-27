@@ -1,5 +1,8 @@
-const CACHE = 'mf6-v5';
+const CACHE = 'mf6-v6';
 const FILES = [
+  ...['push-up','floor-press','biceps-curl','hammer-curl','alternating-curl','crunch','leg-raise',
+    'lateral-raise','shoulder-press','front-raise','bent-over-row','goblet-squat','calf-raise','glute-bridge']
+    .flatMap(id => ['start', 'peak'].map(pose => './assets/poses/' + id + '-' + pose + '.webp')),
   './', './index.html', './style.css', './app.js', './athlete.js',
   './manifest.json', './icon192.png', './icon512.png',
   './assets/athlete-model.js', './assets/vendor/three.module.min.js',

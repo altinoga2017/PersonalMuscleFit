@@ -49,16 +49,32 @@ function refreshWorkout() {
   }));
 }
 
+function poseImage(name, pose) {
+  const image = new Image();
+  image.alt = '';
+  image.src = './assets/poses/' + name.toLowerCase().replaceAll(' ', '-') + '-' + pose + '.webp';
+  return image;
+}
+
 function selectExercise() {
   $('groups').replaceChildren(...Object.keys(library).map(key => choice(key, group === key, () => {
     group = key;
     index = 0;
     selectExercise();
   })));
-  $('exercises').replaceChildren(...library[group].map(([name], i) => choice(name, index === i, () => {
-    index = i;
-    selectExercise();
-  })));
+  $('exercises').replaceChildren(...library[group].map(([name, reps], i) => {
+    const button = choice(name, index === i, () => {
+      index = i;
+      selectExercise();
+    });
+    button.setAttribute('aria-label', name);
+    const dose = document.createElement('small');
+    dose.textContent = `3 sets × ${reps} reps`;
+    button.setAttribute('aria-description', dose.textContent);
+    button.prepend(poseImage(name, 'peak'));
+    button.append(dose);
+    return button;
+  }));
   refreshWorkout();
   viewer?.select(exercise()[0]);
 }
@@ -262,9 +278,47 @@ function createViewer() {
   let playing = !matchMedia('(prefers-reduced-motion: reduce)').matches;
   let name, imported, mixer, clips = [], phase = 0, dirty = true, speed = 1, last = null;
   let importRequest = 0;
+  const paper = new T.Color(0xe6e8e4);
+  const studioFog = scene.fog;
+  function applyAppearance() {
+    const anatomyView = !imported && $('appearance').value === 'anatomy';
+    scene.background = anatomyView ? paper : studio;
+    scene.fog = anatomyView ? null : studioFog;
+    ground.visible = mat.visible = edge.visible = !anatomyView;
+    shadow.visible = !imported && !anatomyView;
+    if (!imported) athlete.setExercise(name, anatomyView);
+    renderer.shadowMap.needsUpdate = true;
+    dirty = true;
+  }
+  $('appearance').onchange = () => {
+    applyAppearance();
+    frameAthlete();
+  };
+  function showPosePair() {
+    const peak = name === 'Alternating curl' ? 25 : 50;
+    const label = {'Shoulder press': 'Lockout', 'Floor press': 'Lockout', 'Push-up': 'Lowered',
+      'Goblet squat': 'Bottom', 'Glute bridge': 'Lifted', 'Bent-over row': 'Pulled in'}[name] || 'Peak';
+    const buttons = [['Start', 0, 'start'], [label, peak, 'peak']].map(([text, percent, pose]) => {
+      const button = document.createElement('button');
+      button.dataset.percent = percent;
+      button.append(poseImage(name, pose), text);
+      button.onclick = () => {
+        $('scrub').value = percent;
+        $('scrub').oninput();
+        controls.autoRotate = false;
+        $('orbit').setAttribute('aria-pressed', false);
+        frameAthlete();
+      };
+      return button;
+    });
+    $('pose-pair').replaceChildren(...buttons);
+  }
   function updatePlayback() {
     renderer.shadowMap.needsUpdate = true;
-    $('rep-position').hidden = Boolean(imported || !muscleGroups[name]);
+    $('pose-pair').hidden = $('appearance').hidden = $('rep-position').hidden = Boolean(imported || !muscleGroups[name]);
+    for (const button of $('pose-pair').children) {
+      button.setAttribute('aria-pressed', !playing && Math.round(phase * 100) === Number(button.dataset.percent));
+    }
     const available = imported ? clips.length > 0 : Boolean(muscleGroups[name]);
     $('play').disabled = $('speed').disabled = !available;
     $('play').textContent = playing ? 'Pause' : 'Play';
@@ -290,7 +344,13 @@ function createViewer() {
     const distance = Math.max(verticalRadius / Math.sin(halfVertical), horizontalRadius / Math.sin(halfHorizontal));
 
     controls.target.set(0, floor ? .39 : overhead ? 1.10 : row ? .76 : .94, push ? .1 : crunch ? -.08 : row ? .12 : 0);
+    const studyAngles = {
+      'Biceps curl': [2.4, .45, 1.4], 'Hammer curl': [2.2, .42, 1.8], 'Front raise': [2.4, .45, 1.3],
+      'Calf raise': [2.4, .48, -1.5], 'Goblet squat': [2.3, .6, 1.4], 'Floor press': [1.6, 1.9, 1.8],
+      'Glute bridge': [2.7, .8, -.72], 'Leg raise': [2.6, 1.1, .9],
+    };
     const angle = new T.Vector3(row ? 2.6 : floor ? 2.5 : 1.5, crunch ? 1.6 : floor ? 1.1 : .52, row ? -1.35 : floor ? 1.55 : 2.6);
+    if ($('appearance').value === 'anatomy' && studyAngles[name]) angle.fromArray(studyAngles[name]);
     camera.position.copy(controls.target).add(angle.setLength(distance));
     controls.update();
     dirty = true;
@@ -342,13 +402,14 @@ function createViewer() {
       }
     }
     if (!imported) {
-      athlete.setExercise(name);
+      applyAppearance();
+      showPosePair();
       if (groups) athlete.pose(name, 0);
       $('status').textContent = groups
         ? 'Drag to rotate. Pinch or scroll to zoom.'
         : 'This exercise is available for logging. A 3D demo is coming in a later update.';
       athlete.root.visible = Boolean(groups);
-      shadow.visible = Boolean(groups);
+
       const floor = ['Push-up', 'Crunch', 'Floor press', 'Leg raise', 'Glute bridge'].includes(name);
       shadow.scale.set(floor ? 1.15 : .90, floor ? 1.95 : .72, 1);
       if (groups) frameAthlete();
@@ -400,6 +461,7 @@ function createViewer() {
       imported.scale.multiplyScalar(scale);
       imported.position.sub(new T.Vector3(center.x, box.min.y, center.z).multiplyScalar(scale));
       scene.add(imported);
+      applyAppearance();
       athlete.root.visible = false;
       shadow.visible = false;
       $('legend').hidden = true;
