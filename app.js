@@ -151,10 +151,41 @@ function createViewer() {
   const stage = $('stage');
   const renderer = new T.WebGLRenderer({antialias: true, powerPreference: 'low-power'});
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.type = T.PCFSoftShadowMap;
   stage.append(renderer.domElement);
   const scene = new T.Scene();
-  scene.background = new T.Color(0x252e39);
-  scene.fog = new T.Fog(0x252e39, 5, 13);
+  const backdrop = document.createElement('canvas');
+  backdrop.width = 512;
+  backdrop.height = 256;
+  const brush = backdrop.getContext('2d');
+  const wash = brush.createLinearGradient(0, 0, 0, 256);
+  wash.addColorStop(0, '#172429');
+  wash.addColorStop(.42, '#314046');
+  wash.addColorStop(.50, '#506063');
+  wash.addColorStop(1, '#506063');
+  brush.fillStyle = wash;
+  brush.fillRect(0, 0, 512, 256);
+  const studio = new T.CanvasTexture(backdrop);
+  studio.colorSpace = T.SRGBColorSpace;
+  studio.mapping = T.EquirectangularReflectionMapping;
+  scene.background = studio;
+  scene.fog = new T.Fog(0x506063, 4.5, 11);
+  // Broad softboxes provide reflections on the chrome even when orbiting.
+  const reflections = document.createElement('canvas');
+  reflections.width = 512;
+  reflections.height = 256;
+  const panels = reflections.getContext('2d');
+  panels.drawImage(backdrop, 0, 0);
+  panels.fillStyle = '#fff3df';
+  panels.fillRect(65, 40, 105, 48);
+  panels.fillStyle = '#d6e9f6';
+  panels.fillRect(328, 52, 48, 84);
+  scene.environment = new T.CanvasTexture(reflections);
+  scene.environment.colorSpace = T.SRGBColorSpace;
+  scene.environment.mapping = T.EquirectangularReflectionMapping;
+  scene.environmentIntensity = .45;
   const camera = new T.PerspectiveCamera(37, 1, .03, 25);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
@@ -163,19 +194,56 @@ function createViewer() {
   controls.minDistance = .75;
   controls.maxDistance = 7;
   controls.autoRotateSpeed = 1.2;
-  scene.add(new T.HemisphereLight(0xffefe4, 0x647a96, 2.15));
-  const key = new T.DirectionalLight(0xffe8d2, 2.65);
-  key.position.set(2, 5, 4);
-  const rim = new T.DirectionalLight(0xb9d6ff, 1.7);
-  rim.position.set(-3, 4, -3);
-  scene.add(key, rim);
+  scene.add(new T.HemisphereLight(0xffeee2, 0x87959f, 1.25));
+  const key = new T.DirectionalLight(0xffe5ce, 2.85);
+  key.position.set(-2.4, 4.8, 3);
+  key.target.position.y = .85;
+  key.castShadow = true;
+  key.shadow.mapSize.set(512, 512);
+  Object.assign(key.shadow.camera, {left: -1.6, right: 1.6, top: 1.6, bottom: -1.6, near: .5, far: 10});
+  key.shadow.camera.updateProjectionMatrix();
+  key.shadow.normalBias = .012;
+  const rim = new T.DirectionalLight(0xddf4ff, 2.9);
+  rim.position.set(2, 2.4, -2);
+  scene.add(key, key.target, rim);
   const ground = new T.Mesh(new T.PlaneGeometry(32, 32), new T.MeshStandardMaterial({color: 0x303b49, roughness: 1}));
   ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -.012;
-  const grid = new T.GridHelper(14, 56, 0x4c5968, 0x3a4655);
-  grid.position.y = -.01;
+  ground.position.y = -.065;
+  ground.receiveShadow = true;
+  // Fine rubber flecks repeat in floor space and mipmap down at a distance.
+  const tile = document.createElement('canvas');
+  tile.width = tile.height = 128;
+  const rubber = tile.getContext('2d');
+  rubber.fillStyle = '#3c494a';
+  rubber.fillRect(0, 0, 128, 128);
+  let seed = 17;
+  function sample() {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  }
+  for (let n = 0; n < 3600; n++) {
+    rubber.fillStyle = n % 4 ? '#364244' : '#566365';
+    rubber.fillRect(sample() * 128, sample() * 128, 1.3, 1);
+  }
+  const texture = new T.CanvasTexture(tile);
+  texture.colorSpace = T.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = T.RepeatWrapping;
+  texture.repeat.set(70, 70);
+  ground.material.color.setHex(0xffffff);
+  ground.material.map = texture;
+  // A shallow rubber platform gives the athlete and the cast shadow a common surface.
+  const matTexture = texture.clone();
+  matTexture.repeat.set(5, 5);
+  const mat = new T.Mesh(new T.CylinderGeometry(1.26, 1.28, .060, 80),
+    new T.MeshStandardMaterial({map: matTexture, color: 0x899795, roughness: .96}));
+  mat.position.y = -.031;
+  mat.receiveShadow = true;
+  const edge = new T.Mesh(new T.RingGeometry(1.205, 1.213, 80),
+    new T.MeshStandardMaterial({color: 0x637570, roughness: .87}));
+  edge.rotation.x = -Math.PI / 2;
   const shadow = contactShadow();
-  scene.add(ground, grid, shadow);
+  shadow.material.opacity = .4;
+  scene.add(ground, mat, edge, shadow);
 
   const athlete = createAthlete(window.ATLAS_MODEL_DATA);
   scene.add(athlete.root);
@@ -195,6 +263,7 @@ function createViewer() {
   let name, imported, mixer, clips = [], phase = 0, dirty = true, speed = 1, last = null;
   let importRequest = 0;
   function updatePlayback() {
+    renderer.shadowMap.needsUpdate = true;
     $('rep-position').hidden = Boolean(imported || !muscleGroups[name]);
     const available = imported ? clips.length > 0 : Boolean(muscleGroups[name]);
     $('play').disabled = $('speed').disabled = !available;
@@ -395,7 +464,7 @@ function createViewer() {
     last = null;
     dirty = true;
   }).observe(stage);
-  renderer.domElement.addEventListener('webglcontextrestored', () => { dirty = true; });
+  renderer.domElement.addEventListener('webglcontextrestored', () => { renderer.shadowMap.needsUpdate = true; dirty = true; });
   renderer.setAnimationLoop(now => {
     if (!visible || document.hidden) {
       last = null;
@@ -409,6 +478,7 @@ function createViewer() {
         const period = name === 'Alternating curl' ? 5.6 : name === 'Goblet squat' ? 3.8 : 3.1;
         phase = (phase + delta * speed / period) % 1;
         athlete.pose(name, phase);
+        renderer.shadowMap.needsUpdate = true;
         $('scrub').value = Math.round(phase * 100);
       }
       dirty = true;
