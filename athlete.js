@@ -2,6 +2,9 @@ import * as T from 'three';
 import {mergeGeometries} from './assets/vendor/utils/BufferGeometryUtils.js';
 
 export const muscleGroups = {
+  'Glute bridge': {primary: ['glutes'], secondary: ['hamstrings', 'core']},
+  'Front raise': {primary: ['shoulders'], secondary: ['chest']},
+  'Alternating curl': {primary: ['biceps'], secondary: ['shoulders']},
   'Floor press': {primary: ['chest'], secondary: ['triceps', 'shoulders']},
   'Hammer curl': {primary: ['biceps'], secondary: ['shoulders']},
   'Leg raise': {primary: ['core'], secondary: []},
@@ -217,19 +220,20 @@ export function createAthlete(data) {
       mesh.visible = Boolean(primary || groups?.secondary.includes(region));
       mesh.material.color.setHex(primary ? 0xf04445 : 0xf99536);
     }
-    const pair = ['Biceps curl', 'Hammer curl', 'Lateral raise', 'Bent-over row', 'Floor press', 'Shoulder press'].includes(name);
+    const pair = ['Biceps curl', 'Alternating curl', 'Hammer curl', 'Front raise', 'Lateral raise', 'Bent-over row', 'Floor press', 'Shoulder press'].includes(name);
     dumbbells[0].visible = pair || name === 'Goblet squat';
     dumbbells[1].visible = pair;
   }
 
-  function pose(name, time) {
-    const rep = (1 - Math.cos(time * Math.PI * 2 / (name === 'Goblet squat' ? 3.8 : 3.1))) / 2;
+  function pose(name, cycle) {
+    const rep = (1 - Math.cos(cycle * Math.PI * 2)) / 2;
     const push = name === 'Push-up', squat = name === 'Goblet squat', curl = name === 'Biceps curl';
     const crunch = name === 'Crunch', raise = name === 'Lateral raise', row = name === 'Bent-over row';
     const hammer = name === 'Hammer curl', legRaise = name === 'Leg raise', calf = name === 'Calf raise';
     const floorPress = name === 'Floor press', shoulderPress = name === 'Shoulder press';
-    const supine = crunch || legRaise || floorPress;
-    const torsoAngle = push ? 1.28 + .24 * rep : squat ? .38 * rep : row ? .93 : supine ? -1.49 : 0;
+    const bridge = name === 'Glute bridge', frontRaise = name === 'Front raise', alternating = name === 'Alternating curl';
+    const supine = crunch || legRaise || floorPress || bridge;
+    const torsoAngle = push ? 1.28 + .24 * rep : squat ? .38 * rep : row ? .93 : bridge ? -Math.PI / 2 - .68 * rep : supine ? -1.49 : 0;
     const torso = rotation(X, torsoAngle);
     const footRotation = push ? rotation(X, 1.37) : calf ? rotation(X, .60 * rep) : identity;
     const leftFoot = anatomy.footLeft.start;
@@ -239,9 +243,14 @@ export function createAthlete(data) {
     const ankleHeight = push ? hands[0].pushAnkle : standingAnkle + (calf ? calfLift : 0);
     const hipTarget = push
       ? transform(hips, leftFoot, v(leftFoot.x, ankleHeight, -.73), torso)
-      : supine ? v(0, .145, .04)
+      : supine ? v(0, bridge ? .105 : .145, .04)
         : v(0, hips.y + ankleHeight - leftFoot.y - (squat ? .335 * rep : row ? .105 : 0),
           hips.z - (squat ? .245 * rep : row ? .155 : 0));
+    if (bridge) {
+      const shoulder = anatomy.spineUpper.end;
+      const anchor = transform(shoulder, hips, hipTarget, rotation(X, -Math.PI / 2));
+      hipTarget.copy(transform(hips, shoulder, anchor, torso));
+    }
     const bodyPoint = point => transform(point, hips, hipTarget, torso);
     let chestRotation = torso;
     let chestPoint = bodyPoint;
@@ -261,8 +270,13 @@ export function createAthlete(data) {
       move(anatomy.spineLower, bodyPoint(anatomy.spineLower.start), torso);
       move(anatomy.spineMid, bodyPoint(anatomy.spineMid.start), torso);
     }
-    for (const name of ['spineUpper', 'head']) {
-      move(anatomy[name], chestPoint(anatomy[name].start), chestRotation);
+    move(anatomy.spineUpper, chestPoint(anatomy.spineUpper.start), chestRotation);
+    if (bridge) {
+      const restingRotation = rotation(X, -Math.PI / 2);
+      const restingHead = transform(anatomy.head.start, hips, v(0, .105, .04), restingRotation);
+      move(anatomy.head, restingHead, restingRotation);
+    } else {
+      move(anatomy.head, chestPoint(anatomy.head.start), chestRotation);
     }
 
     const goblet = bodyPoint(v(0, 1.28, .27));
@@ -315,11 +329,22 @@ export function createAthlete(data) {
         elbow = shoulder.clone().addScaledVector(upperDirection.normalize(), upperLength);
         palm = elbow.clone().addScaledVector(direction.normalize(), lowerLength);
         handRotation = frame(direction, X).multiply(hand.restFrame.clone().invert());
+      } else if (bridge) {
+        palm = v(sign * .27, hand.palmHeight, .06);
+        elbow = jointBetween(shoulder, palm, upperLength, lowerLength, v(sign * .37, .035, -.19));
+        handRotation = hand.flatHand;
       } else if (legRaise) {
         const direction = v(sign * .14, -.20, 1).normalize();
         elbow = shoulder.clone().addScaledVector(direction, upperLength);
         palm = elbow.clone().addScaledVector(v(sign * .025, 0, 1).normalize(), lowerLength);
         handRotation = hand.flatHand;
+      } else if (frontRaise) {
+        const angle = .15 + 1.41 * rep;
+        const direction = v(sign * .10, -Math.cos(angle), Math.sin(angle)).normalize();
+        elbow = shoulder.clone().addScaledVector(direction, upperLength);
+        const forearm = direction.clone().applyAxisAngle(X, -.13);
+        palm = elbow.clone().addScaledVector(forearm, lowerLength);
+        handRotation = frame(forearm, X).multiply(hand.restFrame.clone().invert());
       } else if (raise || row) {
         const angle = raise ? .12 + 1.39 * rep : .13 + 1.11 * rep;
         const upperDirection = raise ? v(sign * Math.sin(angle), -Math.cos(angle), .13)
@@ -332,7 +357,8 @@ export function createAthlete(data) {
         handRotation = frame(direction, Z).multiply(hand.restFrame.clone().invert());
       } else {
         elbow = shoulder.clone().add(v(sign * .094, -Math.sqrt(upperLength ** 2 - .094 ** 2 - .025 ** 2), -.025));
-        const angle = curl || hammer ? .19 + 2.16 * rep : .15;
+        const armRep = alternating ? Math.max(0, Math.sin(2 * Math.PI * cycle) * sign) ** 2 : rep;
+        const angle = curl || hammer || alternating ? .19 + 2.16 * armRep : .15;
         const direction = v(0, -Math.cos(angle), Math.sin(angle));
         palm = elbow.clone().addScaledVector(direction, lowerLength);
         const across = hammer ? v(0, Math.sin(angle), Math.cos(angle)) : X;
@@ -347,7 +373,7 @@ export function createAthlete(data) {
       move(wrist, palm, handRotation);
       const handFrame = handRotation.clone().multiply(hand.restFrame);
       const gripAxis = X.clone().applyQuaternion(handFrame);
-      const pair = curl || hammer || raise || row || floorPress || shoulderPress;
+      const pair = dumbbells[1].visible;
       fingers.forEach(({proximal, distal}, j) => {
         const target = transform(proximal.start, wrist.start, palm, handRotation);
         const angle = pair ? (j === 0 ? .40 : 1.25) : squat ? (j === 0 ? -.28 : .85) : 0;
