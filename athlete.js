@@ -58,17 +58,24 @@ function makeDumbbell() {
   function cylinder(material, radius, length, y, segments, top = radius) {
     parts.get(material).push(new T.CylinderGeometry(top, radius, length, segments).translate(0, y, 0));
   }
-  cylinder(steel, .013, .20, 0, 16);
+  cylinder(steel, .014, .16, 0, 24);
   for (const side of [-1, 1]) {
-    cylinder(rubber, .067, .050, side * .102, 6);
-    cylinder(rubber, .058, .008, side * .131, 6, side > 0 ? .053 : .067);
-    cylinder(badge, .026, .003, side * .137, 18);
-    cylinder(steel, .022, .012, side * .068, 16);
+    // Three rings form the bevel on each end of a molded rubber head.
+    cylinder(rubber, .074, .047, side * .105, 8);
+    cylinder(rubber, side > 0 ? .074 : .064, .010, side * .134, 8, side > 0 ? .064 : .074);
+    cylinder(rubber, side > 0 ? .062 : .074, .012, side * .076, 8, side > 0 ? .074 : .062);
+    cylinder(badge, .048, .003, side * .140, 24);
+    cylinder(rubber, .039, .0016, side * .142, 28);
+    cylinder(steel, .014, .002, side * .143, 20);
+    cylinder(badge, .008, .002, side * .1445, 6);
+    cylinder(steel, .027, .012, side * .065, 24);
+    cylinder(badge, .017, .006, side * .054, 24);
   }
-  // Knurling catches the light along the steel grip.
-  for (let i = -4; i <= 4; i++) cylinder(steel, .0138, .002, i * .010, 16);
+  for (let i = -9; i <= 9; i++) cylinder(steel, .0147, .0013, i * .005, 20);
   for (const [material, geometries] of parts) {
-    weight.add(new T.Mesh(mergeGeometries(geometries), material));
+    const mesh = new T.Mesh(mergeGeometries(geometries), material);
+    mesh.castShadow = true;
+    weight.add(mesh);
     geometries.forEach(geometry => geometry.dispose());
   }
   return weight;
@@ -78,6 +85,32 @@ export function createAthlete(data) {
   const {arrays, landmarks} = data;
   const points = decode(arrays.positionF32, Float32Array);
   const normals = Float32Array.from(decode(arrays.normalI8, Int8Array), n => n / 127);
+  // Low-amplitude relief in meters, evaluated in the bind pose. Apply the
+  // slope to the smooth source normals so the forms travel with the skeleton.
+  function torsoRelief(x, y) {
+    const lateral = Math.abs(x);
+    const bell = (cx, cy, rx, ry) => Math.exp(-(((lateral - cx) / rx) ** 2 + ((y - cy) / ry) ** 2));
+    const pec = bell(.098, 1.371 + .07 * lateral, .079, .059);
+    const abdomen = bell(.042, 1.251, .035, .033) + bell(.046, 1.179, .038, .034)
+      + bell(.042, 1.108, .035, .034) + .55 * bell(.035, 1.044, .033, .035);
+    const oblique = bell(.108, 1.146 + .55 * lateral, .025, .085);
+    return .008 * pec + .005 * abdomen + .003 * oblique;
+  }
+  const step = .001;
+  for (let i = 0; i < points.length; i += 3) {
+    const x = points[i], y = points[i + 1], z = points[i + 2];
+    if (y < .98 || y > 1.5 || Math.abs(x) > .23 || z < .018) continue;
+    const n = v().fromArray(normals, i);
+    const front = T.MathUtils.smoothstep(n.z, .15, .80);
+    const h = front * torsoRelief(x, y);
+    points[i] += n.x * h;
+    points[i + 1] += n.y * h;
+    points[i + 2] += n.z * h;
+    const slope = v(torsoRelief(x + step, y) - torsoRelief(x - step, y),
+      torsoRelief(x, y + step) - torsoRelief(x, y - step), 0).multiplyScalar(front / (2 * step));
+    slope.addScaledVector(n, -slope.dot(n));
+    n.sub(slope).normalize().toArray(normals, i);
+  }
   const joints = decode(arrays.jointsU8, Uint8Array);
   const weights = Float32Array.from(decode(arrays.weightsU8, Uint8Array), n => n / 255);
   const indices = Object.fromEntries(Object.entries(arrays.indicesU16).map(([name, source]) => [name, decode(source, Uint16Array)]));
@@ -115,16 +148,17 @@ export function createAthlete(data) {
     const fingers = Array.from({length: 5}, (_, j) => {
       const proximal = extraBone(knuckle(j + 1));
       const distal = extraBone(landmark(prefix + 'finger-' + (j + 1) + '-2'));
+      const tipBone = extraBone(landmark(prefix + 'finger-' + (j + 1) + '-3'));
       const axis = offset(distal.start, proximal.start).normalize();
-      return {proximal, distal, axis};
+      return {proximal, distal, tipBone, axis};
     });
     return {side, sign: i === 0 ? 1 : -1, arm, wrist, fingers, palmCenter, forward, restFrame, points: []};
   });
 
   for (let i = 0; i < points.length / 3; i++) {
     const point = v().fromArray(points, i * 3);
-    if (Math.abs(point.x) < .46 || point.y > 1.25) continue;
     const hand = hands[point.x > 0 ? 0 : 1];
+    if (point.distanceToSquared(hand.wrist.start) > .25 ** 2) continue;
     const distance = offset(point, hand.wrist.start).dot(hand.forward);
     const blend = T.MathUtils.smoothstep(distance, -.032, .035);
     if (blend === 0) continue;
@@ -143,15 +177,32 @@ export function createAthlete(data) {
     for (let j = 1; j < 5; j++) {
       if (digits[i + 2 + j] > digits[i + 2 + digit]) digit = j;
     }
-    const {proximal, distal, axis} = hand.fingers[digit];
+    const {proximal, distal, tipBone, axis} = hand.fingers[digit];
     const point = v().fromArray(points, vertex * 3);
     const bend = T.MathUtils.smoothstep(offset(point, proximal.start).dot(axis), -.009, .014);
     const tip = T.MathUtils.smoothstep(offset(point, distal.start).dot(axis), -.009, .013);
     const influence = Math.min(1, digits[i + 2 + digit] / 160) * bend;
-    joints.set([hand.wrist.index, proximal.index, distal.index, 0], vertex * 4);
-    weights.set([1 - influence, influence * (1 - tip), influence * tip, 0], vertex * 4);
+    const fingertip = T.MathUtils.smoothstep(offset(point, tipBone.start).dot(axis), -.007, .009);
+    joints.set([hand.wrist.index, proximal.index, distal.index, tipBone.index], vertex * 4);
+    weights.set([1 - influence, influence * (1 - tip), influence * tip * (1 - fingertip), influence * tip * fingertip], vertex * 4);
   }
 
+  // Spread wrist roll along the forearm. Blending two opposing rotations
+  // at the wrist alone collapses its cross-section in an overhead grip.
+  for (const hand of hands) {
+    const forearmIndices = new Set(['lowerArm', 'forearmTwist'].map(prefix =>
+      data.bones.findIndex(bone => bone.name === prefix + hand.side)));
+    hand.rollBones = Array.from({length: 6}, () => extraBone(hand.arm.start));
+    const axis = offset(hand.arm.end, hand.arm.start);
+    const lengthSquared = axis.lengthSq();
+    for (let i = 0; i < joints.length; i++) {
+      if (!forearmIndices.has(joints[i])) continue;
+      const point = v().fromArray(points, Math.floor(i / 4) * 3);
+      const along = offset(point, hand.arm.start).dot(axis) / lengthSquared;
+      const band = Math.round(5 * T.MathUtils.smoothstep(along, .10, .88));
+      joints[i] = hand.rollBones[band].index;
+    }
+  }
   const skeleton = new T.Skeleton(skeletonRoot.children);
   const skinIndex = new T.BufferAttribute(joints, 4);
   const skinWeight = new T.BufferAttribute(weights, 4);
@@ -174,14 +225,88 @@ export function createAthlete(data) {
     root.add(mesh);
     return mesh;
   }
-  surface('body', 0xb58165);
-  surface('eyes', 0x6a564d);
-  surface('shorts', 0x263445, .004);
-  surface('shortsTrim', 0x38495c, .005);
-  surface('trainerUpper', 0x38434e);
-  surface('trainerSole', 0x1a2128);
-  surface('trainerTrim', 0x9aa5ad, .001);
-  const overlays = Object.fromEntries(Object.keys(muscleNames).map(name => [name, surface(name, 0xffffff, .006)]));
+  const body = surface('body', 0xffffff);
+  const shorts = surface('shorts', 0xffffff, .004);
+  surface('shortsTrim', 0x414c53, .005);
+  surface('trainerUpper', 0x495653).castShadow = true;
+  surface('trainerSole', 0x172123);
+  surface('trainerTrim', 0xb4b7a6, .001);
+
+  // Evaluate tissue coverage on the original mesh. Neighbor averaging gives
+  // the tint a soft boundary that follows the same joints as the skin.
+  const count = points.length / 3;
+  const adjacent = Array.from({length: count}, () => new Set());
+  for (let i = 0; i < indices.body.length; i += 3) {
+    const [a, b, c] = indices.body.subarray(i, i + 3);
+    adjacent[a].add(b).add(c);
+    adjacent[b].add(c).add(a);
+    adjacent[c].add(a).add(b);
+  }
+  function diffuse(values) {
+    return values.map((value, i) => {
+      const neighbors = adjacent[i];
+      if (!neighbors.size) return value;
+      let sum = 0;
+      for (const j of neighbors) sum += values[j];
+      return .25 * value + .75 * sum / neighbors.size;
+    });
+  }
+  const masks = {};
+  for (const group of Object.keys(muscleNames)) {
+    const coverage = new Float32Array(count);
+    for (const i of indices[group]) coverage[i] = 1;
+    masks[group] = diffuse(diffuse(coverage));
+  }
+
+  const neutral = new Float32Array(points.length);
+  const shade = new Float32Array(count);
+  const skin = new T.Color(0xb88368), hair = new T.Color(0x372b27);
+  const tone = new T.Color();
+  for (let i = 0; i < count; i++) {
+    const point = v().fromArray(points, i * 3);
+    const normal = v().fromArray(normals, i * 3);
+    let cavity = 0;
+    for (const j of adjacent[i]) {
+      const delta = v().fromArray(points, j * 3).sub(point).normalize();
+      cavity += delta.dot(normal);
+    }
+    shade[i] = 1 - Math.min(.33, 1.55 * Math.max(0, cavity / (adjacent[i].size || 1)));
+    const temple = Math.min(1, Math.abs(point.x) / .072);
+    const hairline = 1.726 + .031 * T.MathUtils.smoothstep(point.z, -.02, .13) - .019 * temple;
+    const crop = T.MathUtils.smoothstep(point.y, hairline, hairline + .009);
+    tone.copy(skin).lerp(hair, crop).multiplyScalar(shade[i]).toArray(neutral, i * 3);
+  }
+
+  const eyes = surface('eyes', 0xffffff);
+  const eyeUV = new Float32Array(count * 2);
+  for (const i of indices.eyes) {
+    eyeUV[i * 2] = .5 + (Math.abs(points[3 * i]) - .030) / .034;
+    eyeUV[i * 2 + 1] = .5 + (points[3 * i + 1] - 1.689) / .034;
+  }
+  const eyeCanvas = document.createElement('canvas');
+  eyeCanvas.width = eyeCanvas.height = 64;
+  const eyeBrush = eyeCanvas.getContext('2d');
+  const pigment = eyeBrush.createRadialGradient(32, 32, 0, 32, 32, 32);
+  pigment.addColorStop(0, '#231d1a');
+  pigment.addColorStop(.13, '#261e1a');
+  pigment.addColorStop(.16, '#765746');
+  pigment.addColorStop(.31, '#635044');
+  pigment.addColorStop(.35, '#41382f');
+  pigment.addColorStop(.39, '#bdb3a4');
+  pigment.addColorStop(1, '#c0afa2');
+  eyeBrush.fillStyle = pigment;
+  eyeBrush.fillRect(0, 0, 64, 64);
+  eyes.geometry.setAttribute('uv', new T.BufferAttribute(eyeUV, 2));
+  eyes.material.map = new T.CanvasTexture(eyeCanvas);
+  eyes.material.map.colorSpace = T.SRGBColorSpace;
+  eyes.material.roughness = .34;
+  for (const surface of [body, shorts]) {
+    surface.material.vertexColors = true;
+    surface.geometry.setAttribute('color', new T.BufferAttribute(new Float32Array(points.length), 3));
+  }
+  body.material.roughness = .59;
+  body.castShadow = true;
+  shorts.castShadow = true;
   const dumbbell = makeDumbbell();
   const dumbbells = [dumbbell, dumbbell.clone()];
   root.add(...dumbbells);
@@ -215,10 +340,27 @@ export function createAthlete(data) {
 
   function setExercise(name) {
     const groups = muscleGroups[name];
-    for (const [region, mesh] of Object.entries(overlays)) {
-      const primary = groups?.primary.includes(region);
-      mesh.visible = Boolean(primary || groups?.secondary.includes(region));
-      mesh.material.color.setHex(primary ? 0xf04445 : 0xf99536);
+    const primary = (groups?.primary || []).map(id => masks[id]);
+    const secondary = (groups?.secondary || []).map(id => masks[id]);
+    const red = new T.Color(0xc63834), amber = new T.Color(0xe18b39);
+    const fabric = new T.Color(0x1f3039), panel = new T.Color(0x4e666b);
+    for (const mesh of [body, shorts]) {
+      const colors = mesh.geometry.attributes.color;
+      for (let i = 0; i < count; i++) {
+        if (mesh === body) tone.fromArray(neutral, i * 3);
+        else {
+          const sidePanel = T.MathUtils.smoothstep(Math.abs(points[i * 3]), .154, .185);
+          const waistband = T.MathUtils.smoothstep(points[i * 3 + 1], 1.027, 1.036);
+          tone.copy(fabric).lerp(panel, sidePanel * .8).multiplyScalar(1 - .32 * waistband);
+        }
+        let hot = 0, warm = 0;
+        for (const mask of primary) hot = Math.max(hot, mask[i]);
+        for (const mask of secondary) warm = Math.max(warm, mask[i]);
+        tone.lerp(amber, warm * .88).lerp(red, hot * .94)
+          .multiplyScalar(1 - Math.max(hot, warm) * (1 - shade[i]));
+        colors.setXYZ(i, tone.r, tone.g, tone.b);
+      }
+      colors.needsUpdate = true;
     }
     const pair = ['Biceps curl', 'Alternating curl', 'Hammer curl', 'Front raise', 'Lateral raise', 'Bent-over row', 'Floor press', 'Shoulder press'].includes(name);
     dumbbells[0].visible = pair || name === 'Goblet squat';
@@ -308,7 +450,11 @@ export function createAthlete(data) {
         move(foot, ankle, footRotation);
       }
 
-      const shoulder = chestPoint(upper.start);
+      const clavicle = anatomy['clavicle' + side];
+      const clavicleBase = chestPoint(clavicle.start);
+      const clavicleRotation = chestRotation.clone();
+      if (shoulderPress) clavicleRotation.multiply(rotation(Z, sign * (.13 + .35 * rep)));
+      const shoulder = transform(upper.start, clavicle.start, clavicleBase, clavicleRotation);
       const upperLength = upper.start.distanceTo(upper.end);
       const lowerLength = arm.start.distanceTo(arm.end);
       let elbow, palm, handRotation;
@@ -323,9 +469,9 @@ export function createAthlete(data) {
             .multiply(hand.restFrame.clone().invert())
           : frame(v(-sign * .78, .33, .53), Z.clone().multiplyScalar(-sign)).multiply(hand.restFrame.clone().invert());
       } else if (floorPress || shoulderPress) {
-        const angle = (floorPress ? -.27 : -.32) + (floorPress ? 1.74 : 1.82) * rep;
+        const angle = (floorPress ? -.27 : -.32) + (floorPress ? 1.74 : 1.65) * rep;
         const upperDirection = v(sign * Math.cos(angle), Math.sin(angle), floorPress ? .33 * (1 - rep) : .19 * (1 - rep));
-        const direction = v(-sign * .09 * rep, 1, floorPress ? -.07 : .09 * (1 - rep));
+        const direction = v(-sign * .09 * rep, 1, floorPress ? -.07 : .09 + .06 * (1 - rep));
         elbow = shoulder.clone().addScaledVector(upperDirection.normalize(), upperLength);
         palm = elbow.clone().addScaledVector(direction.normalize(), lowerLength);
         handRotation = frame(direction, X).multiply(hand.restFrame.clone().invert());
@@ -364,32 +510,55 @@ export function createAthlete(data) {
         const across = hammer ? v(0, Math.sin(angle), Math.cos(angle)) : X;
         handRotation = frame(direction, across).multiply(hand.restFrame.clone().invert());
       }
-      const upperRotation = aim(upper, shoulder, elbow, chestRotation);
-      const lowerRotation = aim(arm, elbow, palm, push ? upperRotation : handRotation);
-      move(anatomy['clavicle' + side], chestPoint(anatomy['clavicle' + side].start), chestRotation);
-      move(anatomy['shoulderCap' + side], shoulder, chestRotation.clone().slerp(upperRotation, .55));
+      let upperBase = chestRotation;
+      if (shoulderPress) {
+        // Preserve the elbow hinge plane as the upper arm rotates outward.
+        const bindUpper = offset(upper.end, upper.start);
+        const bindHinge = bindUpper.clone().cross(offset(arm.end, arm.start));
+        const posedUpper = offset(elbow, shoulder);
+        const posedHinge = posedUpper.clone().cross(offset(palm, elbow));
+        upperBase = frame(posedUpper, posedHinge).multiply(frame(bindUpper, bindHinge).invert());
+      }
+      const upperRotation = aim(upper, shoulder, elbow, upperBase);
+      const lowerRotation = aim(arm, elbow, palm, push || shoulderPress ? upperRotation : handRotation);
+      let wristRoll = lowerRotation;
+      if (shoulderPress) {
+        const axis = offset(arm.end, arm.start).normalize().applyQuaternion(handRotation);
+        wristRoll = new T.Quaternion().setFromUnitVectors(axis, offset(palm, elbow).normalize()).multiply(handRotation);
+      }
+      hand.rollBones.forEach((bone, i) => {
+        move(bone, elbow, lowerRotation.clone().slerp(wristRoll, i / (hand.rollBones.length - 1)));
+      });
+      move(clavicle, clavicleBase, clavicleRotation);
+      move(anatomy['shoulderCap' + side], shoulder, clavicleRotation.clone().slerp(upperRotation, shoulderPress ? .80 : .55));
       move(anatomy['elbow' + side], elbow, upperRotation.clone().slerp(lowerRotation, .60));
       move(anatomy['forearmTwist' + side], elbow, lowerRotation);
       move(wrist, palm, handRotation);
       const handFrame = handRotation.clone().multiply(hand.restFrame);
       const gripAxis = X.clone().applyQuaternion(handFrame);
       const pair = dumbbells[1].visible;
-      fingers.forEach(({proximal, distal}, j) => {
+      fingers.forEach(({proximal, distal, tipBone}, j) => {
         const target = transform(proximal.start, wrist.start, palm, handRotation);
         const angle = pair ? (j === 0 ? .40 : 1.25) : squat ? (j === 0 ? -.28 : .85) : 0;
         const proximalRotation = rotation(gripAxis, angle).multiply(handRotation);
         if (pair && j === 0) {
           const palmNormal = Z.clone().applyQuaternion(handFrame);
           proximalRotation.premultiply(rotation(palmNormal, sign * .62));
+          const bar = transform(hand.palmCenter, wrist.start, palm, handRotation)
+            .addScaledVector(Z.clone().applyQuaternion(handFrame), .024);
+          const thumbAxis = offset(distal.start, proximal.start).normalize().applyQuaternion(proximalRotation);
+          proximalRotation.premultiply(new T.Quaternion().setFromUnitVectors(thumbAxis, offset(bar, target).normalize()));
         }
         const distalTarget = transform(distal.start, proximal.start, target, proximalRotation);
         const distalRotation = rotation(gripAxis, pair ? (j === 0 ? .25 : 1.07) : 0).multiply(proximalRotation);
         move(proximal, target, proximalRotation);
         move(distal, distalTarget, distalRotation);
+        const tipTarget = transform(tipBone.start, distal.start, distalTarget, distalRotation);
+        move(tipBone, tipTarget, rotation(gripAxis, pair ? .65 : 0).multiply(distalRotation));
       });
       if (pair) {
         dumbbells[i].position.copy(transform(hand.palmCenter, wrist.start, palm, handRotation))
-          .addScaledVector(Z.clone().applyQuaternion(handFrame), .017);
+          .addScaledVector(Z.clone().applyQuaternion(handFrame), .023);
         dumbbells[i].quaternion.setFromUnitVectors(Y, gripAxis);
       }
     });
