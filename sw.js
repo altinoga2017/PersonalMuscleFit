@@ -1,4 +1,4 @@
-const CACHE = 'mf6-v2';
+const CACHE = 'mf6-v3';
 const FILES = [
   './', './index.html', './style.css', './app.js', './athlete.js',
   './manifest.json', './icon192.png', './icon512.png',
@@ -8,7 +8,17 @@ const FILES = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)));
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    await cache.addAll(FILES.map(path => new Request(path, {cache: 'reload'})));
+    // Earlier versions cannot request activation from an open app window.
+    const keys = await caches.keys();
+    if (keys.some(key => ['mf5-v1', 'mf6-v1', 'mf6-v2'].includes(key))) await self.skipWaiting();
+  })());
+});
+
+self.addEventListener('message', event => {
+  if (event.data === 'activate-update') event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', event => {
