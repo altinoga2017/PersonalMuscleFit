@@ -1,1 +1,66 @@
-<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=theme-color content="#131820"><link rel=manifest href="manifest.json"><title>MuscleFit 5</title><style>body{font:16px system-ui;background:#131820;color:#eee;margin:0}main{max-width:680px;margin:auto;padding:18px}h1{font-style:italic;margin:0}em{color:#d9fa65}button,select,input{font:inherit;padding:12px;border:0;border-radius:9px;background:#303946;color:white;margin:4px 0}button{cursor:pointer}button.active,#log{background:#d9fa65;color:#161d0e}nav{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}#stage{height:360px;background:#252e39;border-radius:16px;overflow:hidden;position:relative}canvas{display:block}small,p{color:#adb8c7}section{background:#202833;border-radius:12px;padding:14px;margin:12px 0}#log{width:100%}label{display:block}#status{font-size:13px}#stats{display:flex;justify-content:space-between} </style></head><body><main><small>PERSONAL TRAINING STUDIO</small><h1>MUSCLE<em>FIT</em> 5.0</h1><button id=install hidden>Install app</button><nav id=groups></nav><h2 id=title></h2><div id=stage></div><p id=status>Loading renderer…</p><button id=play>Pause</button> <select id=speed><option value=1>1× speed</option><option value=.5>0.5× speed</option><option value=.25>0.25× speed</option></select> <button id=orbit>Orbit</button><section><div id=stats></div><p id=tip></p><button id=log>Complete set</button><p id=rest></p></section><section><h3>Exercises</h3><div id=exercises></div></section><section><h3>Professional model</h3><label>Import a self-contained rigged GLB with embedded animation clips<input id=model type=file accept=.glb></label><select id=clips aria-label="Animation clip"></select><p>Imported clips override the exercise preview; choose the matching clip yourself. Models are not bundled.</p><button id=base>Load MakeHuman base mesh (online)</button></section><section><h3>Workout history</h3><div id=history></div><button id=reset>Clear history</button></section></main><script type=importmap>{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.174.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.174.0/examples/jsm/"}}</script><script type=module src=app.js></script><script>let promptInstall;addEventListener('beforeinstallprompt',e=>{e.preventDefault();promptInstall=e;document.querySelector('#install').hidden=false});document.querySelector('#install').onclick=()=>promptInstall?.prompt();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#131820">
+  <link rel="icon" href="icon192.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <title>MuscleFit 6.0</title>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>MUSCLE<em>FIT</em> 6.0</h1>
+      <button id="install" hidden>Install app</button>
+    </header>
+    <nav id="groups" aria-label="Muscle groups"></nav>
+    <h2 id="title"></h2>
+    <div id="stage"></div>
+    <p id="status" role="status">Loading exercise viewer…</p>
+    <div id="legend" hidden>
+      <span><i class="primary"></i>Primary <b id="primary"></b></span>
+      <span><i class="secondary"></i>Secondary <b id="secondary"></b></span>
+    </div>
+    <div class="controls" aria-label="Viewer controls">
+      <button id="play">Pause</button>
+      <select id="speed" aria-label="Animation speed">
+        <option value="1">1× speed</option>
+        <option value=".5">0.5× speed</option>
+        <option value=".25">0.25× speed</option>
+      </select>
+      <button id="orbit" aria-pressed="false">Orbit</button>
+      <button id="left" aria-label="Rotate left">←</button>
+      <button id="right" aria-label="Rotate right">→</button>
+      <button id="closer" aria-label="Zoom in">+</button>
+      <button id="farther" aria-label="Zoom out">−</button>
+    </div>
+    <section aria-label="Current set">
+      <div id="stats"></div>
+      <p id="tip"></p>
+      <button id="log">Complete set</button>
+      <p id="rest"></p>
+    </section>
+    <section>
+      <h3>Exercises</h3>
+      <div id="exercises" class="controls"></div>
+    </section>
+    <section>
+      <h3>Workout history</h3>
+      <div id="history"></div>
+      <button id="reset">Clear history</button>
+    </section>
+    <details>
+      <summary>Import your own model</summary>
+      <label for="model">Self-contained animated GLB</label>
+      <input id="model" type="file" accept=".glb">
+      <select id="clips" aria-label="Animation clip" hidden></select>
+      <button id="builtin" hidden>Use bundled athlete</button>
+    </details>
+  </main>
+  <script type="importmap">{"imports":{"three":"./assets/vendor/three.module.min.js"}}</script>
+  <script defer src="assets/athlete-model.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
