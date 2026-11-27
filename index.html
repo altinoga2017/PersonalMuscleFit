@@ -17,13 +17,19 @@
       <button id="update" hidden>Load update</button>
     </header>
     <nav id="groups" aria-label="Muscle groups"></nav>
-    <h2 id="title"></h2>
+    <div id="exercises" aria-label="Exercises"></div>
+    <div class="view-heading"><h2 id="title"></h2>
+      <select id="appearance" aria-label="Viewer appearance" hidden>
+        <option value="anatomy">Anatomy view</option><option value="studio">Studio view</option>
+      </select>
+    </div>
     <div id="stage"></div>
     <p id="status" role="status">Loading exercise viewer…</p>
     <div id="legend" hidden>
       <span><i class="primary"></i>Primary <b id="primary"></b></span>
       <span id="secondary-label"><i class="secondary"></i>Secondary <b id="secondary"></b></span>
     </div>
+    <div id="pose-pair" aria-label="Inspect a pose" hidden></div>
     <div id="viewer-controls" class="controls" aria-label="Viewer controls">
       <button id="play">Pause</button>
       <select id="speed" aria-label="Animation speed">
@@ -49,10 +55,7 @@
       <button id="log">Complete set</button>
       <p id="rest"></p>
     </section>
-    <section>
-      <h3>Exercises</h3>
-      <div id="exercises" class="controls"></div>
-    </section>
+
     <section>
       <h3>Workout history</h3>
       <div id="history"></div>
